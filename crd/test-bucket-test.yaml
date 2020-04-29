@@ -1,15 +1,15 @@
 apiVersion: v1
 kind: ReplicationController
 metadata:
-  name: nfs-test2
+  name: nfs-test
 spec:
   replicas: 1
   selector:
-    name: nfs-test2
+    name: nfs-test
   template:
     metadata:
       labels:
-        name: nfs-test2
+        name: nfs-test
     spec:
       containers:
       - image: busybox
@@ -21,9 +21,9 @@ spec:
         name: busybox
         volumeMounts:
           # name must match the volume name below
-          - name: test-bucket-nfs2-server-claim
+          - name: test-bucket-nfs-server-claim
             mountPath: "/mnt"
       volumes:
-      - name: test-bucket-nfs2-server-claim
+      - name: test-bucket-nfs-server-claim
         persistentVolumeClaim:
-          claimName: test-bucket-nfs2-server-claim
+          claimName: test-bucket-nfs-server-claim
