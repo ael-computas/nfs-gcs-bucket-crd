@@ -1,0 +1,1 @@
+kubectl create secret generic crd-k8s-service-account --from-file=./key.json

@@ -1,7 +1,7 @@
 apiVersion: "cx.ael.local/v1"
 kind: Nfsbucket
 metadata:
-  name: test-bucket-nfs
+  name: test-bucket-nfs2
 spec:
   bucket: crd-k8-playground-nfs
   service-account-secret: crd-k8s-service-account
