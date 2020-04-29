@@ -1,0 +1,6 @@
+apiVersion: "cx.ael.local/v1"
+kind: Nfsbucket
+metadata:
+  name: test-bucket-nfs
+spec:
+  bucket: crd-k8-playground-nfs
