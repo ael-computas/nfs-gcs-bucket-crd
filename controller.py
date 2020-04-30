@@ -34,12 +34,42 @@ class NfsController:
             return False
         return True
 
+    def delete_nfs_replication_controller(self, target_namespace: str, template_subs: dict):
+        nfs_bucket_server_replication_controller = self._yaml_template("yaml_templates/nfs-bucket-server-rc.yaml",
+                                                                       template_subs=template_subs)
+        name = nfs_bucket_server_replication_controller.get("metadata").get("name")
+        try:
+            scale = client.V1Scale()
+            scale.spec = client.V1ScaleSpec()
+            scale.spec.replicas = 0
+            self.k8s_core_api.patch_namespaced_replication_controller_scale(
+                name, target_namespace, scale)
+            #We should probably wait for the scaling to actually kill the pods
+            resp_rc = self.k8s_core_api.delete_namespaced_replication_controller(
+                name, namespace=target_namespace)
+        except Exception as e:
+            print(f"{e}")
+            return False
+        return True
+
     def create_nfs_service(self, target_namespace: str, template_subs: dict):
         nfs_bucket_server_service = self._yaml_template("yaml_templates/nfs-bucket-server-service.yaml",
                                                         template_subs=template_subs)
         try:
             resp_service = self.k8s_core_api.create_namespaced_service(
                 body=nfs_bucket_server_service, namespace=target_namespace)
+        except Exception as e:
+            print(f"{e}")
+            return False
+        return True
+
+    def delete_nfs_service(self, target_namespace: str, template_subs: dict):
+        nfs_bucket_server_service = self._yaml_template("yaml_templates/nfs-bucket-server-service.yaml",
+                                                        template_subs=template_subs)
+        name = nfs_bucket_server_service.get("metadata").get("name")
+        try:
+            resp_service = self.k8s_core_api.delete_namespaced_service(
+                name, namespace=target_namespace)
         except Exception as e:
             print(f"{e}")
             return False
@@ -55,11 +85,34 @@ class NfsController:
             return False
         return True
 
+    def delete_pv(self, template_subs: dict):
+        nfs_bucket_pv = self._yaml_template("yaml_templates/nfs-bucket-pv.yaml",
+                                            template_subs=template_subs)
+        name = nfs_bucket_pv.get("metadata").get("name")
+        try:
+            resp_pv = self.k8s_core_api.delete_persistent_volume(name)
+        except Exception as e:
+            print(f"{e}")
+            return False
+        return True
+
     def create_pv_claim(self, target_namespace: str, template_subs: dict):
         nfs_bucket_pvc = self._yaml_template("yaml_templates/nfs-bucket-pvc.yaml",
                                              template_subs=template_subs)
         try:
             resp_pvc = self.k8s_core_api.create_namespaced_persistent_volume_claim(body=nfs_bucket_pvc,
+                                                                                   namespace=target_namespace)
+        except Exception as e:
+            print(f"{e}")
+            return False
+        return True
+
+    def delete_pv_claim(self, target_namespace: str, template_subs: dict):
+        nfs_bucket_pvc = self._yaml_template("yaml_templates/nfs-bucket-pvc.yaml",
+                                             template_subs=template_subs)
+        name = nfs_bucket_pvc.get("metadata").get("name")
+        try:
+            resp_pvc = self.k8s_core_api.delete_namespaced_persistent_volume_claim(name,
                                                                                    namespace=target_namespace)
         except Exception as e:
             print(f"{e}")
@@ -89,6 +142,30 @@ class NfsController:
         print(f"Updating: {base_name}")
         crds.replace_namespaced_custom_object(DOMAIN, "v1", target_namespace, "nfsbuckets", base_name, obj)
 
+    def handle_delete_nfs_bucket(self, crds, obj):
+        metadata = obj.get("metadata")
+        if not metadata:
+            print("No metadata in object, skipping: {}".format(json.dumps(obj, indent=1)))
+            return
+        base_name = metadata.get("name")
+        target_namespace = metadata.get("namespace")
+        obj["spec"]["handled"] = True
+        bucket_name = obj["spec"]["bucket"]
+        service_account_secret = obj["spec"]["service-account-secret"]
+        wanted_name = f"{base_name}-server"
+        d = {'serviceAccountSecret': service_account_secret,
+             'nfsBucketServerName': wanted_name,
+             'nfsBucket': bucket_name}
+
+        self.delete_nfs_replication_controller(target_namespace=target_namespace, template_subs=d)
+        self.delete_nfs_service(target_namespace=target_namespace, template_subs=d)
+        self.delete_pv(template_subs=d)
+        self.delete_pv_claim(target_namespace=target_namespace, template_subs=d)
+
+        print(f"Deleting: {base_name}")
+        #crds.replace_namespaced_custom_object(DOMAIN, "v1", target_namespace, "nfsbuckets", base_name, obj)
+        #crds.delete_namespaced_custom_object(DOMAIN, "v1", target_namespace, "nfsbuckets", base_name)
+
     def verify_can_run(self):
         v1 = client.ApiextensionsV1beta1Api(self.api_client)
         current_crds = [x['spec']['names']['kind'].lower() for x in
@@ -117,7 +194,8 @@ class NfsController:
                 print(f"Handling {operation} on {name}")
                 if 'DELETED' == operation:
                     # TODO: handle delete
-                    print("DELETE is not handled yet.")
+                    #print("DELETE is not handled yet.")
+                    self.handle_delete_nfs_bucket(crds, obj)
                     continue
                 done = spec.get("handled", False)
                 if done:
