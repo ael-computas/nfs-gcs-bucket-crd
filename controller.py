@@ -2,11 +2,11 @@ import json
 import yaml
 from kubernetes import client, config, watch
 import os
-from string import Template
+from string import Template, ascii_lowercase, digits
 from pathlib import Path
+from random import choice
 
 DOMAIN = "cx.ael.local"
-
 
 class NfsController:
     def __init__(self):
@@ -20,12 +20,23 @@ class NfsController:
         self.api_client = client.api_client.ApiClient(configuration=configuration)
         self.k8s_core_api = client.CoreV1Api(api_client=self.api_client)
 
+    def get_owner_reference(self, owner):
+        return [{
+            "apiVersion": "v1",
+            "blockOwnerDeletion": True,
+            "controller": True,
+            "kind": owner.get("kind"),
+            "name": owner.get("metadata").get("name"),
+            "uid": owner.get("metadata").get("uid")
+        }]
+
     def _yaml_template(self, filename, template_subs):
         return yaml.load(Template(Path(filename).read_text()).substitute(template_subs), Loader=yaml.FullLoader)
 
-    def create_nfs_replication_controller(self, target_namespace: str, template_subs: dict):
+    def create_nfs_replication_controller(self, target_namespace: str, template_subs: dict, ownerRef: dict):
         nfs_bucket_server_replication_controller = self._yaml_template("yaml_templates/nfs-bucket-server-rc.yaml",
                                                                        template_subs=template_subs)
+        nfs_bucket_server_replication_controller["metadata"]["ownerReferences"] = ownerRef
         try:
             resp_rc = self.k8s_core_api.create_namespaced_replication_controller(
                 body=nfs_bucket_server_replication_controller, namespace=target_namespace)
@@ -52,9 +63,10 @@ class NfsController:
             return False
         return True
 
-    def create_nfs_service(self, target_namespace: str, template_subs: dict):
+    def create_nfs_service(self, target_namespace: str, template_subs: dict, ownerRef: dict):
         nfs_bucket_server_service = self._yaml_template("yaml_templates/nfs-bucket-server-service.yaml",
                                                         template_subs=template_subs)
+        nfs_bucket_server_service["metadata"]["ownerReferences"] = ownerRef
         try:
             resp_service = self.k8s_core_api.create_namespaced_service(
                 body=nfs_bucket_server_service, namespace=target_namespace)
@@ -75,9 +87,10 @@ class NfsController:
             return False
         return True
 
-    def create_pv(self, template_subs: dict):
+    def create_pv(self, template_subs: dict, ownerRef: dict):
         nfs_bucket_pv = self._yaml_template("yaml_templates/nfs-bucket-pv.yaml",
                                             template_subs=template_subs)
+        nfs_bucket_pv["metadata"]["ownerReferences"] = ownerRef
         try:
             resp_pv = self.k8s_core_api.create_persistent_volume(body=nfs_bucket_pv)
         except Exception as e:
@@ -96,9 +109,10 @@ class NfsController:
             return False
         return True
 
-    def create_pv_claim(self, target_namespace: str, template_subs: dict):
+    def create_pv_claim(self, target_namespace: str, template_subs: dict, ownerRef: dict):
         nfs_bucket_pvc = self._yaml_template("yaml_templates/nfs-bucket-pvc.yaml",
                                              template_subs=template_subs)
+        nfs_bucket_pvc["metadata"]["ownerReferences"] = ownerRef
         try:
             resp_pvc = self.k8s_core_api.create_namespaced_persistent_volume_claim(body=nfs_bucket_pvc,
                                                                                    namespace=target_namespace)
@@ -134,10 +148,11 @@ class NfsController:
              'nfsBucketServerName': wanted_name,
              'nfsBucket': bucket_name}
 
-        self.create_nfs_replication_controller(target_namespace=target_namespace, template_subs=d)
-        self.create_nfs_service(target_namespace=target_namespace, template_subs=d)
-        self.create_pv(template_subs=d)
-        self.create_pv_claim(target_namespace=target_namespace, template_subs=d)
+        ownerRef=self.get_owner_reference(obj)
+        self.create_nfs_replication_controller(target_namespace=target_namespace, template_subs=d, ownerRef=ownerRef)
+        self.create_nfs_service(target_namespace=target_namespace, template_subs=d, ownerRef=ownerRef)
+        self.create_pv(template_subs=d, ownerRef=ownerRef)
+        self.create_pv_claim(target_namespace=target_namespace, template_subs=d, ownerRef=ownerRef)
 
         print(f"Updating: {base_name}")
         crds.replace_namespaced_custom_object(DOMAIN, "v1", target_namespace, "nfsbuckets", base_name, obj)
@@ -201,7 +216,7 @@ class NfsController:
                 if done:
                     print("Already handled.")
                     continue
-                self.handle_nfs_bucket(crds, obj)
+                self.handle_nfs_bucket(crds, obj)\
 
 
 if __name__ == "__main__":
