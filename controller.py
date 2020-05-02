@@ -22,7 +22,7 @@ class NfsController:
 
     def get_owner_reference(self, owner):
         return [{
-            "apiVersion": "v1",
+            "apiVersion": owner.get("apiVersion"),
             "blockOwnerDeletion": True,
             "controller": True,
             "kind": owner.get("kind"),
@@ -216,7 +216,7 @@ class NfsController:
                 if done:
                     print("Already handled.")
                     continue
-                self.handle_nfs_bucket(crds, obj)\
+                self.handle_nfs_bucket(crds, obj)
 
 
 if __name__ == "__main__":
